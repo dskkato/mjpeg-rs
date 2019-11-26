@@ -1,6 +1,7 @@
 use actix_rt::Arbiter;
 use actix_web::error::ErrorInternalServerError;
 use actix_web::web::{Bytes, Data, Path};
+use actix_web::http::header;
 use actix_web::{web, App, Error, HttpResponse, HttpServer, Responder};
 
 use env_logger;
@@ -37,7 +38,7 @@ fn index() -> impl Responder {
     let content = include_str!("index.html");
 
     HttpResponse::Ok()
-        .header("content-type", "text/html")
+        .header("Content-Type", "text/html")
         .body(content)
 }
 
@@ -45,18 +46,19 @@ fn new_client(broadcaster: Data<Mutex<Broadcaster>>) -> impl Responder {
     let rx = broadcaster.lock().unwrap().new_client();
 
     HttpResponse::Ok()
+        .header("Cache-Control", "no-store, must-revalidate")
+        .header("Pragma", "no-cache")
+        .header("Expires", "0")
+        .header("Connection", "close")
         .header(
-            "content-type",
+            "Content-Type",
             "multipart/x-mixed-replace;boundary=boundarydonotcross",
         )
         .no_chunking()
         .streaming(rx)
 }
 
-fn broadcast(
-    msg: Path<String>,
-    broadcaster: Data<Mutex<Broadcaster>>,
-) -> impl Responder {
+fn broadcast(msg: Path<String>, broadcaster: Data<Mutex<Broadcaster>>) -> impl Responder {
     broadcaster.lock().unwrap().send(&msg.into_inner());
 
     HttpResponse::Ok().body("msg sent")
@@ -121,13 +123,17 @@ impl Broadcaster {
             .encode(&buf, 640, 480, image::ColorType::Gray(8))
             .unwrap();
 
-        let msg = format!("--boundarydonotcross\r\ncontent-length:{}\r\ncontent-type:image/jpeg\r\n\r\n", out.len());
-        let mut buf2: Vec<u8> = Vec::from(msg.as_bytes());
-        buf2.extend(out.iter().clone());
-        buf2.extend("\r\n".as_bytes());
+        let mut msg: Vec<u8> = Vec::from(
+            format!(
+                "--boundarydonotcross\r\ncontent-length:{}\r\ncontent-type:image/jpeg\r\n\r\n",
+                out.len()
+            )
+            .as_bytes(),
+        );
+        msg.extend(out.iter().clone());
 
         for client in self.clients.iter() {
-            let result = client.clone().try_send(Bytes::from(&buf2[..]));
+            let result = client.clone().try_send(Bytes::from(&msg[..]));
 
             if let Ok(()) = result {
                 ok_clients.push(client.clone());
@@ -158,7 +164,10 @@ impl Broadcaster {
             .encode(&buf, 640, 480, image::ColorType::Gray(8))
             .unwrap();
 
-        let msg = format!("--boundarydonotcross\r\ncontent-length:{}\r\ncontent-type:image/jpeg\r\n\r\n", out.len());
+        let msg = format!(
+            "--boundarydonotcross\r\ncontent-length:{}\r\ncontent-type:image/jpeg\r\n\r\n",
+            out.len()
+        );
         let mut buf2: Vec<u8> = Vec::from(msg.as_bytes());
         buf2.extend(out.iter().clone());
         buf2.extend("\r\n".as_bytes());

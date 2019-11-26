@@ -1,5 +1,5 @@
 [package]
-name = "mjpeg_test"
+name = "mjpeg-rs"
 version = "0.1.0"
 authors = ["Daisuke Kato"]
 edition = "2018"
