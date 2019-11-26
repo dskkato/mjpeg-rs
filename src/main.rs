@@ -1,7 +1,7 @@
 use actix_rt::Arbiter;
 use actix_web::error::ErrorInternalServerError;
-use actix_web::web::{Bytes, Data, Path};
 use actix_web::http::header;
+use actix_web::web::{Bytes, Data, Path};
 use actix_web::{web, App, Error, HttpResponse, HttpServer, Responder};
 
 use env_logger;
@@ -65,13 +65,13 @@ fn broadcast(msg: Path<String>, broadcaster: Data<Mutex<Broadcaster>>) -> impl R
 }
 
 fn send_image(_: Data<Mutex<Broadcaster>>) -> impl Responder {
-    let mut buf = [0u8; 640 * 480];
+    let mut buf = [0u8; 320 * 240];
     rand::thread_rng().fill_bytes(&mut buf);
 
     let mut out = vec![];
     let mut encoder = image::jpeg::JPEGEncoder::new(&mut out);
     encoder
-        .encode(&buf, 640, 480, image::ColorType::Gray(8))
+        .encode(&buf, 320, 240, image::ColorType::Gray(8))
         .unwrap();
 
     HttpResponse::Ok()
@@ -101,7 +101,7 @@ impl Broadcaster {
     }
 
     fn spawn_ping(me: Data<Mutex<Self>>) {
-        let task = Interval::new(Instant::now(), Duration::from_secs(1))
+        let task = Interval::new(Instant::now(), Duration::from_millis(1000))
             .for_each(move |_| {
                 me.lock().unwrap().remove_stale_clients();
                 Ok(())
@@ -114,13 +114,13 @@ impl Broadcaster {
     fn remove_stale_clients(&mut self) {
         let mut ok_clients = Vec::new();
 
-        let mut buf = [0u8; 640 * 480];
+        let mut buf = [0u8; 320 * 240];
         rand::thread_rng().fill_bytes(&mut buf);
 
         let mut out = vec![];
         let mut encoder = image::jpeg::JPEGEncoder::new(&mut out);
         encoder
-            .encode(&buf, 640, 480, image::ColorType::Gray(8))
+            .encode(&buf, 320, 240, image::ColorType::Gray(8))
             .unwrap();
 
         let mut msg: Vec<u8> = Vec::from(
@@ -145,9 +145,24 @@ impl Broadcaster {
     fn new_client(&mut self) -> Client {
         let (tx, rx) = channel(100);
 
-        // tx.clone()
-        //     .try_send(Bytes::from("data: connected\n\n"))
-        //     .unwrap();
+        let mut buf = [0u8; 320 * 240];
+        rand::thread_rng().fill_bytes(&mut buf);
+
+        let mut out = vec![];
+        let mut encoder = image::jpeg::JPEGEncoder::new(&mut out);
+        encoder
+            .encode(&buf, 320, 240, image::ColorType::Gray(8))
+            .unwrap();
+
+        let mut msg: Vec<u8> = Vec::from(
+            format!(
+                "--boundarydonotcross\r\ncontent-length:{}\r\ncontent-type:image/jpeg\r\n\r\n",
+                out.len()
+            )
+            .as_bytes(),
+        );
+        msg.extend(out.iter().clone());
+        tx.clone().try_send(Bytes::from(msg)).unwrap();
 
         self.clients.push(tx);
         Client(rx)
@@ -155,28 +170,26 @@ impl Broadcaster {
 
     fn send(&self, msg: &str) {
         // let msg = Bytes::from(["data: ", msg, "\n\n"].concat());
-        let mut buf = [0u8; 640 * 480];
+        let mut buf = [0u8; 320 * 240];
         rand::thread_rng().fill_bytes(&mut buf);
 
         let mut out = vec![];
         let mut encoder = image::jpeg::JPEGEncoder::new(&mut out);
         encoder
-            .encode(&buf, 640, 480, image::ColorType::Gray(8))
+            .encode(&buf, 320, 240, image::ColorType::Gray(8))
             .unwrap();
 
-        let msg = format!(
-            "--boundarydonotcross\r\ncontent-length:{}\r\ncontent-type:image/jpeg\r\n\r\n",
-            out.len()
+        let mut msg: Vec<u8> = Vec::from(
+            format!(
+                "--boundarydonotcross\r\ncontent-length:{}\r\ncontent-type:image/jpeg\r\n\r\n",
+                out.len()
+            )
+            .as_bytes(),
         );
-        let mut buf2: Vec<u8> = Vec::from(msg.as_bytes());
-        buf2.extend(out.iter().clone());
-        buf2.extend("\r\n".as_bytes());
+        msg.extend(out.iter().clone());
 
         for client in self.clients.iter() {
-            client
-                .clone()
-                .try_send(Bytes::from(&buf2[..]))
-                .unwrap_or(());
+            client.clone().try_send(Bytes::from(&msg[..])).unwrap_or(());
         }
     }
 }
