@@ -1,7 +1,6 @@
 use actix_rt::Arbiter;
 use actix_web::error::ErrorInternalServerError;
-use actix_web::http::header;
-use actix_web::web::{Bytes, Data, Path};
+use actix_web::web::{Bytes, Data};
 use actix_web::{web, App, Error, HttpResponse, HttpServer, Responder};
 
 use env_logger;
@@ -12,6 +11,7 @@ use tokio::timer::Interval;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use escapi;
 use image;
 use rand;
 use rand::RngCore;
@@ -25,7 +25,6 @@ fn main() {
             .register_data(data.clone())
             .route("/", web::get().to(index))
             .route("/events", web::get().to(new_client))
-            .route("/broadcast/{msg}", web::get().to(broadcast))
             .route("/image", web::get().to(send_image))
     })
     .bind("127.0.0.1:8080")
@@ -58,20 +57,28 @@ fn new_client(broadcaster: Data<Mutex<Broadcaster>>) -> impl Responder {
         .streaming(rx)
 }
 
-fn broadcast(msg: Path<String>, broadcaster: Data<Mutex<Broadcaster>>) -> impl Responder {
-    broadcaster.lock().unwrap().send(&msg.into_inner());
-
-    HttpResponse::Ok().body("msg sent")
-}
-
 fn send_image(_: Data<Mutex<Broadcaster>>) -> impl Responder {
-    let mut buf = [0u8; 320 * 240];
-    rand::thread_rng().fill_bytes(&mut buf);
+    const W: u32 = 320;
+    const H: u32 = 240;
+
+    let camera = escapi::init(0, W, H, 1).expect("Could not initialize the camera");
+    println!("capture initialized, device name: {}", camera.name());
+
+    let (width, height) = (camera.capture_width(), camera.capture_height());
+    let pixels = camera.capture().expect("Could not capture an image");
+
+    // Lets' convert it to RGB.
+    let mut buffer = vec![0; width as usize * height as usize * 3];
+    for i in 0..pixels.len() / 4 {
+        buffer[i * 3] = pixels[i * 4 + 2];
+        buffer[i * 3 + 1] = pixels[i * 4 + 1];
+        buffer[i * 3 + 2] = pixels[i * 4];
+    }
 
     let mut out = vec![];
     let mut encoder = image::jpeg::JPEGEncoder::new(&mut out);
     encoder
-        .encode(&buf, 320, 240, image::ColorType::Gray(8))
+        .encode(&buffer, 320, 240, image::ColorType::RGB(8))
         .unwrap();
 
     HttpResponse::Ok()
@@ -116,7 +123,6 @@ impl Broadcaster {
 
         let mut buf = [0u8; 320 * 240];
         rand::thread_rng().fill_bytes(&mut buf);
-
         let mut out = vec![];
         let mut encoder = image::jpeg::JPEGEncoder::new(&mut out);
         encoder
@@ -128,10 +134,9 @@ impl Broadcaster {
                 "--boundarydonotcross\r\ncontent-length:{}\r\ncontent-type:image/jpeg\r\n\r\n",
                 out.len()
             )
-            .as_bytes(),
+            .into_bytes(),
         );
-        msg.extend(out.iter().clone());
-
+        msg.extend(out);
         for client in self.clients.iter() {
             let result = client.clone().try_send(Bytes::from(&msg[..]));
 
@@ -159,38 +164,13 @@ impl Broadcaster {
                 "--boundarydonotcross\r\ncontent-length:{}\r\ncontent-type:image/jpeg\r\n\r\n",
                 out.len()
             )
-            .as_bytes(),
+            .into_bytes(),
         );
-        msg.extend(out.iter().clone());
+        msg.extend(out);
         tx.clone().try_send(Bytes::from(msg)).unwrap();
 
         self.clients.push(tx);
         Client(rx)
-    }
-
-    fn send(&self, msg: &str) {
-        // let msg = Bytes::from(["data: ", msg, "\n\n"].concat());
-        let mut buf = [0u8; 320 * 240];
-        rand::thread_rng().fill_bytes(&mut buf);
-
-        let mut out = vec![];
-        let mut encoder = image::jpeg::JPEGEncoder::new(&mut out);
-        encoder
-            .encode(&buf, 320, 240, image::ColorType::Gray(8))
-            .unwrap();
-
-        let mut msg: Vec<u8> = Vec::from(
-            format!(
-                "--boundarydonotcross\r\ncontent-length:{}\r\ncontent-type:image/jpeg\r\n\r\n",
-                out.len()
-            )
-            .as_bytes(),
-        );
-        msg.extend(out.iter().clone());
-
-        for client in self.clients.iter() {
-            client.clone().try_send(Bytes::from(&msg[..])).unwrap_or(());
-        }
     }
 }
 
