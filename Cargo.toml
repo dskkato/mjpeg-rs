@@ -13,4 +13,3 @@ tokio = "0.1"
 
 escapi = "4.0"
 image = "0.22"
-rand = "0.7"

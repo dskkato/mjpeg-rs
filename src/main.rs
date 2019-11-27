@@ -13,8 +13,6 @@ use std::time::{Duration, Instant};
 
 use escapi;
 use image;
-use rand;
-use rand::RngCore;
 
 fn main() {
     env_logger::init();
@@ -88,6 +86,8 @@ fn send_image(_: Data<Mutex<Broadcaster>>) -> impl Responder {
 
 struct Broadcaster {
     clients: Vec<Sender<Bytes>>,
+    camera: escapi::Device,
+    out: Vec<u8>,
 }
 
 impl Broadcaster {
@@ -97,13 +97,21 @@ impl Broadcaster {
 
         // ping clients every 10 seconds to see if they are alive
         Broadcaster::spawn_ping(me.clone());
+        Broadcaster::spawn_capture(me.clone());
 
         me
     }
 
     fn new() -> Self {
+        const W: u32 = 320;
+        const H: u32 = 240;
+
+        let camera = escapi::init(0, W, H, 1).expect("Could not initialize the camera");
+
         Broadcaster {
             clients: Vec::new(),
+            camera,
+            out: Vec::new(),
         }
     }
 
@@ -118,25 +126,52 @@ impl Broadcaster {
         Arbiter::spawn(task);
     }
 
+    fn spawn_capture(me: Data<Mutex<Self>>) {
+        let task = Interval::new(Instant::now(), Duration::from_millis(1000))
+            .for_each(move |_| {
+                me.lock().unwrap().capture();
+                Ok(())
+            })
+            .map_err(|e| panic!("interval errored; err={:?}", e));
+
+        Arbiter::spawn(task);
+    }
+
+    fn capture(&mut self) {
+        let camera = &self.camera;
+        let (width, height) = (camera.capture_width(), camera.capture_height());
+        let pixels = camera.capture().expect("Could not capture an image");
+        println!("Captured");
+
+        // Lets' convert it to RGB.
+        let mut buffer = vec![0; width as usize * height as usize * 3];
+        for i in 0..pixels.len() / 4 {
+            buffer[i * 3] = pixels[i * 4 + 2];
+            buffer[i * 3 + 1] = pixels[i * 4 + 1];
+            buffer[i * 3 + 2] = pixels[i * 4];
+        }
+
+        let mut temp = Vec::new();
+        let mut encoder = image::jpeg::JPEGEncoder::new(&mut temp);
+
+        encoder
+            .encode(&buffer, 320, 240, image::ColorType::RGB(8))
+            .unwrap();
+        self.out = temp;
+        println!("finish");
+    }
+
     fn remove_stale_clients(&mut self) {
         let mut ok_clients = Vec::new();
 
-        let mut buf = [0u8; 320 * 240];
-        rand::thread_rng().fill_bytes(&mut buf);
-        let mut out = vec![];
-        let mut encoder = image::jpeg::JPEGEncoder::new(&mut out);
-        encoder
-            .encode(&buf, 320, 240, image::ColorType::Gray(8))
-            .unwrap();
-
-        let mut msg: Vec<u8> = Vec::from(
+        let mut msg = Vec::from(
             format!(
                 "--boundarydonotcross\r\ncontent-length:{}\r\ncontent-type:image/jpeg\r\n\r\n",
-                out.len()
+                self.out.len()
             )
             .into_bytes(),
         );
-        msg.extend(out);
+        msg.extend(&self.out);
         for client in self.clients.iter() {
             let result = client.clone().try_send(Bytes::from(&msg[..]));
 
@@ -150,23 +185,14 @@ impl Broadcaster {
     fn new_client(&mut self) -> Client {
         let (tx, rx) = channel(100);
 
-        let mut buf = [0u8; 320 * 240];
-        rand::thread_rng().fill_bytes(&mut buf);
-
-        let mut out = vec![];
-        let mut encoder = image::jpeg::JPEGEncoder::new(&mut out);
-        encoder
-            .encode(&buf, 320, 240, image::ColorType::Gray(8))
-            .unwrap();
-
-        let mut msg: Vec<u8> = Vec::from(
+        let mut msg = Vec::from(
             format!(
                 "--boundarydonotcross\r\ncontent-length:{}\r\ncontent-type:image/jpeg\r\n\r\n",
-                out.len()
+                self.out.len()
             )
             .into_bytes(),
         );
-        msg.extend(out);
+        msg.extend(&self.out);
         tx.clone().try_send(Bytes::from(msg)).unwrap();
 
         self.clients.push(tx);
