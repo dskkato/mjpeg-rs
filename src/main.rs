@@ -12,6 +12,8 @@ use escapi;
 use image;
 
 const FRAME_RATE: u64 = 30;
+const W: u32 = 320;
+const H: u32 = 240;
 
 fn main() {
     env_logger::init();
@@ -86,8 +88,6 @@ impl Broadcaster {
     }
 
     fn spawn_capture(me: Data<Mutex<Self>>) {
-        const W: u32 = 320;
-        const H: u32 = 240;
 
         let camera = escapi::init(0, W, H, FRAME_RATE).expect("Could not initialize the camera");
 
