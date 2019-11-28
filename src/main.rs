@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use escapi;
 use image;
 
-const FRAME_RATE: u64 = 30;
+const FRAME_RATE: u64 = 10;
 
 fn main() {
     env_logger::init();
@@ -58,7 +58,6 @@ fn new_client(broadcaster: Data<Mutex<Broadcaster>>) -> impl Responder {
 
 struct Broadcaster {
     clients: Vec<Sender<Bytes>>,
-    out: Vec<u8>,
 }
 
 impl Broadcaster {
@@ -74,7 +73,6 @@ impl Broadcaster {
     fn new() -> Self {
         Broadcaster {
             clients: Vec::new(),
-            out: Vec::new(),
         }
     }
 
@@ -117,7 +115,7 @@ impl Broadcaster {
 
                 let mut msg = Vec::from(
                     format!(
-                        "--boundarydonotcross\r\ncontent-length:{}\r\ncontent-type:image/jpeg\r\n\r\n", temp.len()
+                        "--boundarydonotcross\r\nContent-Length:{}\r\nContent-Type:image/jpeg\r\n\r\n", temp.len()
                     ).into_bytes());
                 msg.extend(&temp);
                 me.lock().unwrap().remove_stale_clients(&msg);
@@ -130,16 +128,6 @@ impl Broadcaster {
 
     fn new_client(&mut self) -> Client {
         let (tx, rx) = channel(100);
-
-        let mut msg = Vec::from(
-            format!(
-                "--boundarydonotcross\r\ncontent-length:{}\r\ncontent-type:image/jpeg\r\n\r\n",
-                self.out.len()
-            )
-            .into_bytes(),
-        );
-        msg.extend(&self.out);
-        tx.clone().try_send(Bytes::from(msg)).unwrap();
 
         self.clients.push(tx);
         Client(rx)
