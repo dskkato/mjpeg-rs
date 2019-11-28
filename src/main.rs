@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use escapi;
 use image;
 
-const FRAME_RATE: u64 = 10;
+const FRAME_RATE: u64 = 30;
 
 fn main() {
     env_logger::init();
@@ -97,15 +97,25 @@ impl Broadcaster {
         let task = Interval::new(Instant::now(), Duration::from_millis(1000 / FRAME_RATE))
             .for_each(move |_| {
                 let (width, height) = (camera.capture_width(), camera.capture_height());
-                let pixels = camera.capture().expect("Could not capture an image");
+                let pixels = camera.capture();
 
-                // Lets' convert it to RGB.
-                let mut buffer = vec![0; width as usize * height as usize * 3];
-                for i in 0..pixels.len() / 4 {
-                    buffer[i * 3] = pixels[i * 4 + 2];
-                    buffer[i * 3 + 1] = pixels[i * 4 + 1];
-                    buffer[i * 3 + 2] = pixels[i * 4];
-                }
+                let buffer = match pixels {
+                    Ok(pixels) => {
+                        // Lets' convert it to RGB.
+                        let mut buffer = vec![0; width as usize * height as usize * 3];
+                        for i in 0..pixels.len() / 4 {
+                            buffer[i * 3] = pixels[i * 4 + 2];
+                            buffer[i * 3 + 1] = pixels[i * 4 + 1];
+                            buffer[i * 3 + 2] = pixels[i * 4];
+                        }
+
+                        buffer
+                    }
+                    _ => {
+                        println!("failed to capture");
+                        vec![0; width as usize * height as usize * 3]
+                    }
+                };
 
                 let mut temp = Vec::new();
                 let mut encoder = image::jpeg::JPEGEncoder::new(&mut temp);
