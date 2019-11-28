@@ -12,8 +12,8 @@ use escapi;
 use image;
 
 const FRAME_RATE: u64 = 30;
-const W: u32 = 320;
-const H: u32 = 240;
+const WIDTH: u32 = 320;
+const HEIGHT: u32 = 240;
 
 fn main() {
     env_logger::init();
@@ -88,11 +88,11 @@ impl Broadcaster {
     }
 
     fn spawn_capture(me: Data<Mutex<Self>>) {
-
-        let camera = escapi::init(0, W, H, FRAME_RATE).expect("Could not initialize the camera");
+        let camera =
+            escapi::init(0, WIDTH, HEIGHT, FRAME_RATE).expect("Could not initialize the camera");
+        let (width, height) = (camera.capture_width(), camera.capture_height());
 
         std::thread::spawn(move || {
-            let (width, height) = (camera.capture_width(), camera.capture_height());
             loop {
                 let pixels = camera.capture();
 
@@ -120,10 +120,11 @@ impl Broadcaster {
                     .encode(&buffer, 320, 240, image::ColorType::RGB(8))
                     .unwrap();
 
-                let mut msg = Vec::from(
-                    format!(
-                        "--boundarydonotcross\r\nContent-Length:{}\r\nContent-Type:image/jpeg\r\n\r\n", temp.len()
-                    ).into_bytes());
+                let mut msg = format!(
+                    "--boundarydonotcross\r\nContent-Length:{}\r\nContent-Type:image/jpeg\r\n\r\n",
+                    temp.len()
+                )
+                .into_bytes();
                 msg.extend(&temp);
                 me.lock().unwrap().remove_stale_clients(&msg);
             }
