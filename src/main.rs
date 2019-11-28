@@ -1,4 +1,3 @@
-use actix_rt::Arbiter;
 use actix_web::error::ErrorInternalServerError;
 use actix_web::web::{Bytes, Data};
 use actix_web::{web, App, Error, HttpResponse, HttpServer, Responder};
@@ -6,10 +5,8 @@ use actix_web::{web, App, Error, HttpResponse, HttpServer, Responder};
 use env_logger;
 use tokio::prelude::*;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio::timer::Interval;
 
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
 
 use escapi;
 use image;
@@ -94,9 +91,9 @@ impl Broadcaster {
 
         let camera = escapi::init(0, W, H, FRAME_RATE).expect("Could not initialize the camera");
 
-        let task = Interval::new(Instant::now(), Duration::from_millis(1000 / FRAME_RATE))
-            .for_each(move |_| {
-                let (width, height) = (camera.capture_width(), camera.capture_height());
+        std::thread::spawn(move || {
+            let (width, height) = (camera.capture_width(), camera.capture_height());
+            loop {
                 let pixels = camera.capture();
 
                 let buffer = match pixels {
@@ -129,11 +126,8 @@ impl Broadcaster {
                     ).into_bytes());
                 msg.extend(&temp);
                 me.lock().unwrap().remove_stale_clients(&msg);
-                Ok(())
-            })
-            .map_err(|e| panic!("interval errored; err={:?}", e));
-
-        Arbiter::spawn(task);
+            }
+        });
     }
 
     fn new_client(&mut self) -> Client {
