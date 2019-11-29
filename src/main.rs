@@ -8,12 +8,19 @@ use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 use std::sync::Mutex;
 
-use escapi;
 use image;
 
+#[cfg(target_os = "windows")]
+use escapi;
+
+#[cfg(target_os = "macos")]
+use opencv;
+#[cfg(target_os = "macos")]
+use opencv::videoio;
+
 const FRAME_RATE: u64 = 30;
-const WIDTH: u32 = 320;
-const HEIGHT: u32 = 240;
+const WIDTH: u32 = 320 * 4;
+const HEIGHT: u32 = 240 * 3;
 
 fn main() {
     env_logger::init();
@@ -87,6 +94,7 @@ impl Broadcaster {
         self.clients = ok_clients;
     }
 
+    #[cfg(target_os = "windows")]
     fn spawn_capture(me: Data<Mutex<Self>>) {
         let camera =
             escapi::init(0, WIDTH, HEIGHT, FRAME_RATE).expect("Could not initialize the camera");
@@ -117,7 +125,7 @@ impl Broadcaster {
                 let mut temp = Vec::new();
                 let mut encoder = image::jpeg::JPEGEncoder::new(&mut temp);
                 encoder
-                    .encode(&buffer, 320, 240, image::ColorType::RGB(8))
+                    .encode(&buffer, WIDTH, HEIGHT, image::ColorType::RGB(8))
                     .unwrap();
 
                 let mut msg = format!(
@@ -128,6 +136,49 @@ impl Broadcaster {
                 msg.extend(&temp);
                 me.lock().unwrap().remove_stale_clients(&msg);
             }
+        });
+    }
+
+    #[cfg(target_os = "macos")]
+    fn spawn_capture(me: Data<Mutex<Self>>) {
+        let mut cam = videoio::VideoCapture::new_with_backend(0, videoio::CAP_ANY).unwrap(); // 0 is the default camera
+        let opened = videoio::VideoCapture::is_opened(&cam).unwrap();
+        cam.set(videoio::CAP_PROP_FRAME_WIDTH, WIDTH as f64)
+            .unwrap();
+        cam.set(videoio::CAP_PROP_FRAME_HEIGHT, HEIGHT as f64)
+            .unwrap();
+        cam.set(videoio::CAP_PROP_FPS, FRAME_RATE as f64).unwrap();
+        cam.set(videoio::CAP_PROP_CONVERT_RGB, 1 as f64).unwrap();
+        if !opened {
+            panic!("Unable to open default camera!");
+        }
+
+        std::thread::spawn(move || loop {
+            let mut frame = opencv::core::Mat::default().unwrap();
+            cam.read(&mut frame).unwrap();
+
+            let mut temp = Vec::new();
+            let mut encoder = image::jpeg::JPEGEncoder::new(&mut temp);
+            unsafe {
+                let mut samples = Vec::from(std::slice::from_raw_parts(
+                    frame.data().unwrap() as *const u8,
+                    (WIDTH * HEIGHT * 3) as usize,
+                ));
+                for i in 0..(WIDTH * HEIGHT) {
+                    samples.swap((i * 3) as usize, (i * 3 + 2) as usize);
+                }
+                encoder
+                    .encode(&samples, WIDTH, HEIGHT, image::ColorType::RGB(8))
+                    .unwrap();
+            }
+
+            let mut msg = format!(
+                "--boundarydonotcross\r\nContent-Length:{}\r\nContent-Type:image/jpeg\r\n\r\n",
+                temp.len()
+            )
+            .into_bytes();
+            msg.extend(&temp);
+            me.lock().unwrap().remove_stale_clients(&msg);
         });
     }
 
