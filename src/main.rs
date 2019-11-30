@@ -39,7 +39,7 @@ fn main() {
         App::new()
             .register_data(data.clone())
             .route("/", web::get().to(index))
-            .route("/events", web::get().to(new_client))
+            .route("/streaming", web::get().to(new_client))
     })
     .bind("0.0.0.0:8080")
     .expect("Unable to bind port")
