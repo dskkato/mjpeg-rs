@@ -124,7 +124,7 @@ impl Broadcaster {
             cam.set(videoio::CAP_PROP_FPS, FRAME_RATE as f64).unwrap();
             cam.set(videoio::CAP_PROP_CONVERT_RGB, 1 as f64).unwrap();
 
-            println!(
+            info!(
                 "{}, {}, {}",
                 cam.get(videoio::CAP_PROP_FRAME_WIDTH).unwrap(),
                 cam.get(videoio::CAP_PROP_FRAME_HEIGHT).unwrap(),
