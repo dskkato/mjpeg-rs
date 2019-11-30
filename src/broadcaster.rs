@@ -133,11 +133,11 @@ impl Broadcaster {
             if !opened {
                 panic!("Unable to open default camera!");
             }
-            let mut frame = opencv::core::Mat::default().unwrap();
-            cam.read(&mut frame).unwrap();
-            let frame = unsafe {
+            let mut mat_frame = opencv::core::Mat::default().unwrap();
+            cam.read(&mut mat_frame).unwrap();
+            let mut frame = unsafe {
                 Vec::from(std::slice::from_raw_parts(
-                    frame.data().unwrap() as *const u8,
+                    mat_frame.data().unwrap() as *const u8,
                     (WIDTH * HEIGHT * 3) as usize,
                 ))
             };
@@ -147,7 +147,7 @@ impl Broadcaster {
                 frame.swap((i * 3) as usize, (i * 3 + 2) as usize);
             }
 
-            let msg = Broadcaster::make_message_block(&frame, width, height);
+            let msg = Broadcaster::make_message_block(&frame, WIDTH, HEIGHT);
             me.lock().unwrap().send_image(&msg);
         });
     }
