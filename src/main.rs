@@ -2,6 +2,8 @@ use actix_web::error::ErrorInternalServerError;
 use actix_web::web::{Bytes, Data};
 use actix_web::{web, App, Error, HttpResponse, HttpServer, Responder};
 
+#[macro_use]
+extern crate log;
 use env_logger;
 use tokio::prelude::*;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
@@ -39,7 +41,6 @@ fn main() {
             .route("/", web::get().to(index))
             .route("/events", web::get().to(new_client))
     })
-    // .bind("127.0.0.1:8080")
     .bind("0.0.0.0:8080")
     .expect("Unable to bind port")
     .run()
@@ -47,6 +48,7 @@ fn main() {
 }
 
 fn index() -> impl Responder {
+    info!("index");
     let content = include_str!("index.html");
 
     HttpResponse::Ok()
@@ -55,7 +57,9 @@ fn index() -> impl Responder {
 }
 
 fn new_client(broadcaster: Data<Mutex<Broadcaster>>) -> impl Responder {
+    info!("new_client...");
     let rx = broadcaster.lock().unwrap().new_client();
+    info!("now subscribed!");
 
     HttpResponse::Ok()
         .header("Cache-Control", "no-store, must-revalidate")
@@ -90,7 +94,7 @@ impl Broadcaster {
         }
     }
 
-    fn remove_stale_clients(&mut self, msg: &[u8]) {
+    fn send_image(&mut self, msg: &[u8]) {
         let mut ok_clients = Vec::new();
         for client in self.clients.iter() {
             let result = client.clone().try_send(Bytes::from(&msg[..]));
@@ -125,7 +129,7 @@ impl Broadcaster {
                         buffer
                     }
                     _ => {
-                        println!("failed to capture");
+                        warn!("failed to capture");
                         vec![0; width as usize * height as usize * 3]
                     }
                 };
@@ -142,7 +146,7 @@ impl Broadcaster {
                 )
                 .into_bytes();
                 msg.extend(&temp);
-                me.lock().unwrap().remove_stale_clients(&msg);
+                me.lock().unwrap().send_image(&msg);
             }
         });
     }
@@ -194,7 +198,7 @@ impl Broadcaster {
                 )
                 .into_bytes();
                 msg.extend(&temp);
-                me.lock().unwrap().remove_stale_clients(&msg);
+                me.lock().unwrap().send_image(&msg);
             }
         });
     }
