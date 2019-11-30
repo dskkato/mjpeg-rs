@@ -47,7 +47,23 @@ impl Broadcaster {
         Client(rx)
     }
 
-    fn send_image(&mut self, msg: &[u8]) {
+    fn make_message_block(frame: &[u8], width: u32, height: u32) -> Vec<u8> {
+        let mut buffer = Vec::new();
+        let mut encoder = image::jpeg::JPEGEncoder::new(&mut buffer);
+        encoder
+            .encode(&frame, width, height, image::ColorType::RGB(8))
+            .unwrap();
+
+        let mut msg = format!(
+            "--boundarydonotcross\r\nContent-Length:{}\r\nContent-Type:image/jpeg\r\n\r\n",
+            buffer.len()
+        )
+        .into_bytes();
+        msg.extend(buffer);
+        msg
+    }
+
+    fn send_image(&mut self, msg:&[u8]) {
         let mut ok_clients = Vec::new();
         for client in self.clients.iter() {
             let result = client.clone().try_send(Bytes::from(&msg[..]));
@@ -61,106 +77,78 @@ impl Broadcaster {
 
     #[cfg(target_os = "windows")]
     fn spawn_capture(me: Data<Mutex<Self>>) {
-        #[cfg(target_os = "windows")]
         const WIDTH: u32 = 320;
-        #[cfg(target_os = "windows")]
         const HEIGHT: u32 = 180;
-        std::thread::spawn(move || {
-            let camera = escapi::init(0, WIDTH, HEIGHT, FRAME_RATE)
-                .expect("Could not initialize the camera");
-            let (width, height) = (camera.capture_width(), camera.capture_height());
+        let camera =
+            escapi::init(0, WIDTH, HEIGHT, FRAME_RATE).expect("Could not initialize the camera");
+        let (width, height) = (camera.capture_width(), camera.capture_height());
 
-            loop {
-                let pixels = camera.capture();
+        std::thread::spawn(move || loop {
+            let pixels = camera.capture();
 
-                let buffer = match pixels {
-                    Ok(pixels) => {
-                        // Lets' convert it to RGB.
-                        let mut buffer = vec![0; width as usize * height as usize * 3];
-                        for i in 0..pixels.len() / 4 {
-                            buffer[i * 3] = pixels[i * 4 + 2];
-                            buffer[i * 3 + 1] = pixels[i * 4 + 1];
-                            buffer[i * 3 + 2] = pixels[i * 4];
-                        }
-
-                        buffer
+            let frame = match pixels {
+                Ok(pixels) => {
+                    // Lets' convert it to RGB.
+                    let mut buffer = vec![0; width as usize * height as usize * 3];
+                    for i in 0..pixels.len() / 4 {
+                        buffer[i * 3] = pixels[i * 4 + 2];
+                        buffer[i * 3 + 1] = pixels[i * 4 + 1];
+                        buffer[i * 3 + 2] = pixels[i * 4];
                     }
-                    _ => {
-                        warn!("failed to capture");
-                        vec![0; width as usize * height as usize * 3]
-                    }
-                };
 
-                let mut temp = Vec::new();
-                let mut encoder = image::jpeg::JPEGEncoder::new(&mut temp);
-                encoder
-                    .encode(&buffer, WIDTH, HEIGHT, image::ColorType::RGB(8))
-                    .unwrap();
+                    buffer
+                }
+                _ => {
+                    warn!("failed to capture");
+                    vec![0; width as usize * height as usize * 3]
+                }
+            };
 
-                let mut msg = format!(
-                    "--boundarydonotcross\r\nContent-Length:{}\r\nContent-Type:image/jpeg\r\n\r\n",
-                    temp.len()
-                )
-                .into_bytes();
-                msg.extend(&temp);
-                me.lock().unwrap().send_image(&msg);
-            }
+            let msg = Broadcaster::make_message_block(&frame, WIDTH, HEIGHT);
+            me.lock().unwrap().send_image(&msg);
         });
     }
 
     #[cfg(target_os = "macos")]
     fn spawn_capture(me: Data<Mutex<Self>>) {
-        #[cfg(target_os = "macos")]
         const WIDTH: u32 = 1280;
-        #[cfg(target_os = "macos")]
         const HEIGHT: u32 = 720;
-        std::thread::spawn(move || {
-            let mut cam = videoio::VideoCapture::new_with_backend(0, videoio::CAP_ANY).unwrap(); // 0 is the default camera
-            let opened = videoio::VideoCapture::is_opened(&cam).unwrap();
-            cam.set(videoio::CAP_PROP_FRAME_WIDTH, WIDTH as f64)
-                .unwrap();
-            cam.set(videoio::CAP_PROP_FRAME_HEIGHT, HEIGHT as f64)
-                .unwrap();
-            cam.set(videoio::CAP_PROP_FPS, FRAME_RATE as f64).unwrap();
-            cam.set(videoio::CAP_PROP_CONVERT_RGB, 1 as f64).unwrap();
 
-            info!(
-                "{}, {}, {}",
-                cam.get(videoio::CAP_PROP_FRAME_WIDTH).unwrap(),
-                cam.get(videoio::CAP_PROP_FRAME_HEIGHT).unwrap(),
-                cam.get(videoio::CAP_PROP_FPS).unwrap()
-            );
+        let mut cam = videoio::VideoCapture::new_with_backend(0, videoio::CAP_ANY).unwrap(); // 0 is the default camera
+        let opened = videoio::VideoCapture::is_opened(&cam).unwrap();
+        cam.set(videoio::CAP_PROP_FRAME_WIDTH, WIDTH as f64)
+            .unwrap();
+        cam.set(videoio::CAP_PROP_FRAME_HEIGHT, HEIGHT as f64)
+            .unwrap();
+        cam.set(videoio::CAP_PROP_FPS, FRAME_RATE as f64).unwrap();
 
+        info!(
+            "{}, {}, {}",
+            cam.get(videoio::CAP_PROP_FRAME_WIDTH).unwrap(),
+            cam.get(videoio::CAP_PROP_FRAME_HEIGHT).unwrap(),
+            cam.get(videoio::CAP_PROP_FPS).unwrap()
+        );
+
+        std::thread::spawn(move || loop {
             if !opened {
                 panic!("Unable to open default camera!");
             }
-            loop {
-                let mut frame = opencv::core::Mat::default().unwrap();
-                cam.read(&mut frame).unwrap();
+            let mut frame = opencv::core::Mat::default().unwrap();
+            cam.read(&mut frame).unwrap();
+            let frame = unsafe {
+                Vec::from(std::slice::from_raw_parts(
+                    frame.data().unwrap() as *const u8,
+                    (WIDTH * HEIGHT * 3) as usize,
+                ))
+            };
 
-                let mut temp = Vec::new();
-                let mut encoder = image::jpeg::JPEGEncoder::new(&mut temp);
-                unsafe {
-                    let mut samples = Vec::from(std::slice::from_raw_parts(
-                        frame.data().unwrap() as *const u8,
-                        (WIDTH * HEIGHT * 3) as usize,
-                    ));
-                    for i in 0..(WIDTH * HEIGHT) {
-                        samples.swap((i * 3) as usize, (i * 3 + 2) as usize);
-                    }
-                    encoder
-                        .encode(&samples, WIDTH, HEIGHT, image::ColorType::RGB(8))
-                        .unwrap();
-                }
-
-                let mut msg = format!(
-                    "--boundarydonotcross\r\nContent-Length:{}\r\nContent-Type:image/jpeg\r\n\r\n",
-                    temp.len()
-                )
-                .into_bytes();
-                msg.extend(&temp);
-                me.lock().unwrap().send_image(&msg);
+            // Lets' convert from BGR to RGB.
+            for i in 0..(WIDTH * HEIGHT) {
+                frame.swap((i * 3) as usize, (i * 3 + 2) as usize);
             }
+
+            let msg = Broadcaster::make_message_block(&frame, width, height);
+            me.lock().unwrap().send_image(&msg);
         });
     }
 }
