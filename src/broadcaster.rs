@@ -78,7 +78,7 @@ impl Broadcaster {
     #[cfg(target_os = "windows")]
     fn spawn_capture(me: Data<Mutex<Self>>) {
         const WIDTH: u32 = 320;
-        const HEIGHT: u32 = 180;
+        const HEIGHT: u32 = 240;
         let camera =
             escapi::init(0, WIDTH, HEIGHT, FRAME_RATE).expect("Could not initialize the camera");
         let (width, height) = (camera.capture_width(), camera.capture_height());
