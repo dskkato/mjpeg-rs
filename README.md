@@ -1,6 +1,6 @@
 # Live streaming server with Rust/actix-web
 
-This repository demonstrates how to use actix-web's streaming for live streaming, so called Motion JPEG.
+Live streaming server based on MJPEG over HTTP.
 
 ## Pre-requirement
 
@@ -8,13 +8,17 @@ A web-camera must be connected.
 
 ## Suppoted environment
 
-Currentlry, Windows and macos is supported.
+Currentlry, Windows and macos are supported.
 
-This constrain comes from Camera driver, so one can use this repository by using appropriate camera driver, like L4V2 in Linux envirnment.
+This constrain comes from Camera libraries that I can use.
 
 ## How to use
 
+Since this module consists of a little image processing, release build is recomendded.
+
 **Windows user**
+
+There are no external dependencies, except for Web-camera.
 
 ```
 cargo run --release
@@ -22,13 +26,13 @@ cargo run --release
 
 **Mac user**
 
-You need to install OpenCV 4.1, because of the `opencv` crate's dependencies.
+You may need to install OpenCV 4.1, because of the `opencv` crate's dependencies.
 
 ```
 brew install opencv
 ```
 
-Then, run.
+And run.
 
 ```
 cargo run --release
