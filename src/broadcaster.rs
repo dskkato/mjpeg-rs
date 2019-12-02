@@ -17,8 +17,6 @@ use opencv;
 #[cfg(target_os = "macos")]
 use opencv::videoio;
 
-const FRAME_RATE: u64 = 30;
-
 /// Hold clients channels
 pub struct Broadcaster {
     clients: Vec<Sender<Bytes>>,
@@ -31,11 +29,11 @@ impl Broadcaster {
         }
     }
 
-    pub fn create() -> Data<Mutex<Self>> {
+    pub fn create(width: u32, height: u32, fps: u64) -> Data<Mutex<Self>> {
         // Data ≃ Arc
         let me = Data::new(Mutex::new(Broadcaster::new()));
 
-        Broadcaster::spawn_capture(me.clone());
+        Broadcaster::spawn_capture(me.clone(), width, height, fps);
 
         me
     }
@@ -63,7 +61,7 @@ impl Broadcaster {
         msg
     }
 
-    fn send_image(&mut self, msg:&[u8]) {
+    fn send_image(&mut self, msg: &[u8]) {
         let mut ok_clients = Vec::new();
         for client in self.clients.iter() {
             let result = client.clone().try_send(Bytes::from(&msg[..]));
@@ -76,12 +74,10 @@ impl Broadcaster {
     }
 
     #[cfg(target_os = "windows")]
-    fn spawn_capture(me: Data<Mutex<Self>>) {
-        const WIDTH: u32 = 320;
-        const HEIGHT: u32 = 240;
-        let camera =
-            escapi::init(0, WIDTH, HEIGHT, FRAME_RATE).expect("Could not initialize the camera");
+    fn spawn_capture(me: Data<Mutex<Self>>, width: u32, height: u32, fps: u64) {
+        let camera = escapi::init(0, width, height, fps).expect("Could not initialize the camera");
         let (width, height) = (camera.capture_width(), camera.capture_height());
+        info!("actual (hiehgt, width) = ({}, {})", width, height);
 
         std::thread::spawn(move || loop {
             let pixels = camera.capture();
@@ -104,23 +100,21 @@ impl Broadcaster {
                 }
             };
 
-            let msg = Broadcaster::make_message_block(&frame, WIDTH, HEIGHT);
+            let msg = Broadcaster::make_message_block(&frame, width, height);
             me.lock().unwrap().send_image(&msg);
         });
     }
 
     #[cfg(target_os = "macos")]
-    fn spawn_capture(me: Data<Mutex<Self>>) {
-        const WIDTH: u32 = 1280;
-        const HEIGHT: u32 = 720;
+    fn spawn_capture(me: Data<Mutex<Self>>, width:u32, height:u32, fps:u64) {
 
         let mut cam = videoio::VideoCapture::new_with_backend(0, videoio::CAP_ANY).unwrap(); // 0 is the default camera
         let opened = videoio::VideoCapture::is_opened(&cam).unwrap();
-        cam.set(videoio::CAP_PROP_FRAME_WIDTH, WIDTH as f64)
+        cam.set(videoio::CAP_PROP_FRAME_WIDTH, width as f64)
             .unwrap();
-        cam.set(videoio::CAP_PROP_FRAME_HEIGHT, HEIGHT as f64)
+        cam.set(videoio::CAP_PROP_FRAME_HEIGHT, height as f64)
             .unwrap();
-        cam.set(videoio::CAP_PROP_FPS, FRAME_RATE as f64).unwrap();
+        cam.set(videoio::CAP_PROP_FPS, fps as f64).unwrap();
 
         info!(
             "{}, {}, {}",

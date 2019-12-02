@@ -13,6 +13,7 @@ futures = "0.1"
 tokio = "0.1"
 
 image = "0.22"
+structopt = "0.3"
 
 [target.'cfg(target_os="windows")'.dependencies]
 escapi = "4.0"
