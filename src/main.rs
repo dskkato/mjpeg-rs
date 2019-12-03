@@ -29,11 +29,7 @@ struct Opt {
 fn main() {
     env_logger::init();
 
-    #[cfg(target_os="windows")]
     let opt = Opt::from_args();
-
-    #[cfg(target_os="macos")]
-    let opt = Opt::from_iter([1280, 720, 30]);
 
     info!("{:?}", opt);
 

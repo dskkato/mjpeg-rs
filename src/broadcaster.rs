@@ -132,16 +132,16 @@ impl Broadcaster {
             let mut frame = unsafe {
                 Vec::from(std::slice::from_raw_parts(
                     mat_frame.data().unwrap() as *const u8,
-                    (WIDTH * HEIGHT * 3) as usize,
+                    (width * height * 3) as usize,
                 ))
             };
 
             // Lets' convert from BGR to RGB.
-            for i in 0..(WIDTH * HEIGHT) {
+            for i in 0..(width * height) {
                 frame.swap((i * 3) as usize, (i * 3 + 2) as usize);
             }
 
-            let msg = Broadcaster::make_message_block(&frame, WIDTH, HEIGHT);
+            let msg = Broadcaster::make_message_block(&frame, width, height);
             me.lock().unwrap().send_image(&msg);
         });
     }
