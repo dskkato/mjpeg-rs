@@ -10,6 +10,9 @@ use std::sync::Mutex;
 #[cfg(target_os = "windows")]
 use escapi;
 
+#[cfg(target_os = "linux")]
+use rscam;
+
 use image;
 
 #[cfg(target_os = "macos")]
@@ -45,6 +48,18 @@ impl Broadcaster {
         Client(rx)
     }
 
+    #[cfg(target_os = "linux")]
+    fn make_message_block(frame: &[u8]) -> Vec<u8> {
+        let mut msg = format!(
+            "--boundarydonotcross\r\nContent-Length:{}\r\nContent-Type:image/jpeg\r\n\r\n",
+            frame.len()
+        )
+        .into_bytes();
+        msg.extend(frame);
+        msg
+    }
+
+    #[cfg(not(target_os = "linux"))]
     fn make_message_block(frame: &[u8], width: u32, height: u32) -> Vec<u8> {
         let mut buffer = Vec::new();
         let mut encoder = image::jpeg::JPEGEncoder::new(&mut buffer);
@@ -142,6 +157,25 @@ impl Broadcaster {
             }
 
             let msg = Broadcaster::make_message_block(&frame, width, height);
+            me.lock().unwrap().send_image(&msg);
+        });
+    }
+
+    #[cfg(target_os = "linux")]
+    fn spawn_capture(me: Data<Mutex<Self>>, width: u32, height: u32, fps: u64) {
+        let mut camera = rscam::new("/dev/video0").unwrap();
+
+        camera.start(&rscam::Config {
+            interval: (1, fps as u32), // 30 fps
+            resolution: (width, height),
+            format: b"MJPG",
+            ..Default::default()
+        }).unwrap();
+
+        std::thread::spawn(move || loop {
+            let frame = camera.capture().unwrap();
+
+            let msg = Broadcaster::make_message_block(&frame);
             me.lock().unwrap().send_image(&msg);
         });
     }
