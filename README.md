@@ -38,5 +38,13 @@ And run. Currently, switching camera resolution was failed and only (1280, 720) 
 cargo run --release -- -w 1280 -h 720
 ```
 
+**lunux user**
+
+Linux build was tested using [cross](https://github.com/rust-embedded/cross). Before the building, please follow cross setup guide.
+
+```
+cross build --release --target aarch64-unknown-linux-gnu
+```
+
 Then, access to [http://127.0.0.1:8080](http://127.0.0.1:8080), or [http://127.0.0.1:8080/streaming](http://127.0.0.1:8080/streaming) from a web-browse (except IE).
 
