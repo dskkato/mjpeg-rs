@@ -25,9 +25,8 @@ struct Opt {
     fps: u64,
 }
 
-
 #[actix_rt::main]
-async fn main() ->std::io::Result<()> {
+async fn main() -> std::io::Result<()> {
     env_logger::init();
 
     let opt = Opt::from_args();
