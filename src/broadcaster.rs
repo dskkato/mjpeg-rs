@@ -1,23 +1,18 @@
-use actix_web::web::{Bytes, Data};
-use actix_web::Error;
-
-use tokio::sync::mpsc::{channel, Receiver, Sender};
-
-use futures::{Stream, StreamExt};
-
 use std::pin::Pin;
 use std::sync::Mutex;
 use std::task::{Context, Poll};
 
+use actix_web::web::{Bytes, Data};
+use actix_web::Error;
+use futures::Stream;
+use tokio::sync::mpsc::{channel, Receiver, Sender};
+
 #[cfg(target_os = "windows")]
 use escapi;
-
 use image;
 
 #[cfg(target_os = "macos")]
-use opencv;
-#[cfg(target_os = "macos")]
-use opencv::videoio;
+use opencv::{self, videoio};
 
 /// Hold clients channels
 pub struct Broadcaster {
@@ -65,7 +60,7 @@ impl Broadcaster {
 
     fn send_image(&mut self, msg: &[u8]) {
         let mut ok_clients = Vec::new();
-            let msg = Bytes::from([msg].concat());
+        let msg = Bytes::from([msg].concat());
         for client in self.clients.iter() {
             let result = client.clone().try_send(msg.clone());
 
