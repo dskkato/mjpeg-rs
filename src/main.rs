@@ -26,7 +26,8 @@ struct Opt {
 }
 
 
-fn main() {
+#[actix_rt::main]
+async fn main() ->std::io::Result<()> {
     env_logger::init();
 
     let opt = Opt::from_args();
@@ -37,17 +38,16 @@ fn main() {
 
     HttpServer::new(move || {
         App::new()
-            .register_data(data.clone())
+            .app_data(data.clone())
             .route("/", web::get().to(index))
             .route("/streaming", web::get().to(new_client))
     })
-    .bind("0.0.0.0:8080")
-    .expect("Unable to bind port")
-    .run()
-    .unwrap();
+    .bind("0.0.0.0:8080")?
+    .start()
+    .await
 }
 
-fn index() -> impl Responder {
+async fn index() -> impl Responder {
     let content = include_str!("index.html");
 
     HttpResponse::Ok()
@@ -56,7 +56,7 @@ fn index() -> impl Responder {
 }
 
 /// Register a new client and return a response
-fn new_client(broadcaster: Data<Mutex<Broadcaster>>) -> impl Responder {
+async fn new_client(broadcaster: Data<Mutex<Broadcaster>>) -> impl Responder {
     info!("new_client...");
     let rx = broadcaster.lock().unwrap().new_client();
 

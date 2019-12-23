@@ -1,11 +1,13 @@
-use actix_web::error::ErrorInternalServerError;
 use actix_web::web::{Bytes, Data};
 use actix_web::Error;
 
-use tokio::prelude::*;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
+use futures::{Stream, StreamExt};
+
+use std::pin::Pin;
 use std::sync::Mutex;
+use std::task::{Context, Poll};
 
 #[cfg(target_os = "windows")]
 use escapi;
@@ -63,8 +65,9 @@ impl Broadcaster {
 
     fn send_image(&mut self, msg: &[u8]) {
         let mut ok_clients = Vec::new();
+            let msg = Bytes::from([msg].concat());
         for client in self.clients.iter() {
-            let result = client.clone().try_send(Bytes::from(&msg[..]));
+            let result = client.clone().try_send(msg.clone());
 
             if let Ok(()) = result {
                 ok_clients.push(client.clone());
@@ -106,8 +109,7 @@ impl Broadcaster {
     }
 
     #[cfg(target_os = "macos")]
-    fn spawn_capture(me: Data<Mutex<Self>>, width:u32, height:u32, fps:u64) {
-
+    fn spawn_capture(me: Data<Mutex<Self>>, width: u32, height: u32, fps: u64) {
         let mut cam = videoio::VideoCapture::new_with_backend(0, videoio::CAP_ANY).unwrap(); // 0 is the default camera
         let opened = videoio::VideoCapture::is_opened(&cam).unwrap();
         cam.set(videoio::CAP_PROP_FRAME_WIDTH, width as f64)
@@ -151,10 +153,13 @@ impl Broadcaster {
 pub struct Client(Receiver<Bytes>);
 
 impl Stream for Client {
-    type Item = Bytes;
-    type Error = Error;
+    type Item = Result<Bytes, Error>;
 
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        self.0.poll().map_err(ErrorInternalServerError)
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match Pin::new(&mut self.0).poll_next(cx) {
+            Poll::Ready(Some(v)) => Poll::Ready(Some(Ok(v))),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
