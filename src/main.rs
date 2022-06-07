@@ -5,7 +5,6 @@ use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 
 #[macro_use]
 extern crate log;
-use env_logger;
 
 use std::sync::Mutex;
 
@@ -25,7 +24,7 @@ struct Opt {
     fps: u64,
 }
 
-#[actix_rt::main]
+#[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init();
 
@@ -42,7 +41,7 @@ async fn main() -> std::io::Result<()> {
             .route("/streaming", web::get().to(new_client))
     })
     .bind("0.0.0.0:8080")?
-    .start()
+    .run()
     .await
 }
 
@@ -50,7 +49,7 @@ async fn index() -> impl Responder {
     let content = include_str!("index.html");
 
     HttpResponse::Ok()
-        .header("Content-Type", "text/html")
+        .append_header(("Content-Type", "text/html"))
         .body(content)
 }
 
@@ -60,14 +59,13 @@ async fn new_client(broadcaster: Data<Mutex<Broadcaster>>) -> impl Responder {
     let rx = broadcaster.lock().unwrap().new_client();
 
     HttpResponse::Ok()
-        .header("Cache-Control", "no-store, must-revalidate")
-        .header("Pragma", "no-cache")
-        .header("Expires", "0")
-        .header("Connection", "close")
-        .header(
+        .append_header(("Cache-Control", "no-store, must-revalidate"))
+        .append_header(("Pragma", "no-cache"))
+        .append_header(("Expires", "0"))
+        .append_header(("Connection", "close"))
+        .append_header((
             "Content-Type",
             "multipart/x-mixed-replace;boundary=boundarydonotcross",
-        )
-        .no_chunking()
+        ))
         .streaming(rx) // now starts streaming
 }

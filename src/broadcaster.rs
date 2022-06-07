@@ -8,8 +8,7 @@ use futures::Stream;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 #[cfg(target_os = "windows")]
-use escapi;
-use image;
+use image::{codecs::jpeg::JpegEncoder, ColorType};
 
 #[cfg(target_os = "macos")]
 use opencv::{self, videoio};
@@ -44,9 +43,9 @@ impl Broadcaster {
 
     fn make_message_block(frame: &[u8], width: u32, height: u32) -> Vec<u8> {
         let mut buffer = Vec::new();
-        let mut encoder = image::jpeg::JPEGEncoder::new(&mut buffer);
+        let mut encoder = JpegEncoder::new(&mut buffer);
         encoder
-            .encode(&frame, width, height, image::ColorType::RGB(8))
+            .encode(frame, width, height, ColorType::Rgb8)
             .unwrap();
 
         let mut msg = format!(
@@ -151,7 +150,7 @@ impl Stream for Client {
     type Item = Result<Bytes, Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match Pin::new(&mut self.0).poll_next(cx) {
+        match Pin::new(&mut self.0).poll_recv(cx) {
             Poll::Ready(Some(v)) => Poll::Ready(Some(Ok(v))),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
